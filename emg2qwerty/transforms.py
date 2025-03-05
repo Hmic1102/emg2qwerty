@@ -243,3 +243,58 @@ class SpecAugment:
 
         # (..., C, freq, T) -> (T, ..., C, freq)
         return x.movedim(-1, 0)
+
+
+@dataclass
+class AmplitudeScaling:
+    """Randomly scales the amplitude of the sEMG signals to simulate
+    different muscle contraction strengths.
+
+    Helps the model become robust to variations in typing pressure and
+    muscle activation levels.
+
+    Args:
+        min_scale (float): Minimum scaling factor (default: 0.8).
+        max_scale (float): Maximum scaling factor (default: 1.2).
+    """
+
+    min_scale: float = 0.8
+    max_scale: float = 1.2
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        scale = torch.FloatTensor(1).uniform_(self.min_scale, self.max_scale)
+        return tensor * scale
+
+
+from scipy.interpolate import CubicSpline
+
+@dataclass
+class TimeWarping:
+    """Applies time warping by stretching or compressing the signal along the time axis
+    using cubic spline interpolation. This simulates variations in typing speed.
+
+    Inspired by Dynamic Time Warping techniques.
+
+    Args:
+        warp_strength (float): Maximum warping intensity (default: 0.2). 
+            A value of 0.2 means time can be stretched/compressed by ±20%.
+    """
+
+    warp_strength: float = 0.2
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        time_steps = np.arange(tensor.shape[0])  # Original time indices
+        orig_time = time_steps / tensor.shape[0]  # Normalize to [0, 1]
+
+        # Generate random warping curve
+        warp_factor = 1 + np.random.uniform(-self.warp_strength, self.warp_strength)
+        warped_time = np.clip(orig_time * warp_factor, 0, 1)  # Apply warping and clip
+
+        # Interpolate using cubic splines for smooth warping
+        warped_tensor = []
+        for i in range(tensor.shape[1]):  # Iterate over channels
+            cs = CubicSpline(orig_time, tensor[:, i].numpy())  # Create cubic spline
+            warped_tensor.append(cs(warped_time))  # Apply warping
+
+        return torch.tensor(np.stack(warped_tensor, axis=1), dtype=tensor.dtype)
+
