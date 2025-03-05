@@ -3,15 +3,24 @@ to_tensor:
   _target_: emg2qwerty.transforms.ToTensor
   fields: [emg_left, emg_right]
 
+temporal_jitter:
+  _target_: emg2qwerty.transforms.TemporalAlignmentJitter
+  max_offset: 120  # Max 60ms jitter for 2kHz EMG
+
+amplitude_scaling:
+  _target_: emg2qwerty.transforms.AmplitudeScaling
+  min_scale: 0.8
+  max_scale: 1.2  # Random scaling to simulate different contraction strengths
+
+time_warping:
+  _target_: emg2qwerty.transforms.TimeWarping
+  warp_strength: 0.2  # Time stretching/compression factor
+
 band_rotation:
   _target_: emg2qwerty.transforms.ForEach  # i.i.d rotation offset for each band
   transform:
     _target_: emg2qwerty.transforms.RandomBandRotation
     offsets: [-1, 0, 1]
-
-temporal_jitter:
-  _target_: emg2qwerty.transforms.TemporalAlignmentJitter
-  max_offset: 120  # Max 60ms jitter for 2kHz EMG
 
 logspec:
   _target_: emg2qwerty.transforms.LogSpectrogram
@@ -28,10 +37,12 @@ specaug:
 transforms:
   train:
     - ${to_tensor}
-    - ${band_rotation}
-    - ${temporal_jitter}
-    - ${logspec}
-    - ${specaug}
+    - ${temporal_jitter}    # Introduce misalignment first
+    - ${amplitude_scaling}  # Apply amplitude variation
+    - ${time_warping}       # Time warping before frequency transform
+    - ${band_rotation}      # Rotate channels after warping
+    - ${logspec}            # Convert to log spectrogram
+    - ${specaug}            # Apply frequency/time masking
 
   val:
     - ${to_tensor}
