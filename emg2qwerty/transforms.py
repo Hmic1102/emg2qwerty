@@ -267,34 +267,32 @@ class AmplitudeScaling:
 
 
 from scipy.interpolate import CubicSpline
+import numpy as np
+import torch
+from dataclasses import dataclass
 
 @dataclass
 class TimeWarping:
-    """Applies time warping by stretching or compressing the signal along the time axis
-    using cubic spline interpolation. This simulates variations in typing speed.
-
-    Inspired by Dynamic Time Warping techniques.
-
-    Args:
-        warp_strength (float): Maximum warping intensity (default: 0.2). 
-            A value of 0.2 means time can be stretched/compressed by ±20%.
+    """Applies time warping without changing the shape of the input.
+    
+    Ensures that the number of time steps remains unchanged after transformation.
     """
-
     warp_strength: float = 0.2
 
     def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
-        time_steps = np.arange(tensor.shape[0])  # Original time indices
-        orig_time = time_steps / tensor.shape[0]  # Normalize to [0, 1]
+        T = tensor.shape[0]  # Number of time steps
+        time_steps = np.arange(T)  # Original time indices
+        orig_time = time_steps / T  # Normalize to [0,1]
 
         # Generate random warping curve
         warp_factor = 1 + np.random.uniform(-self.warp_strength, self.warp_strength)
         warped_time = np.clip(orig_time * warp_factor, 0, 1)  # Apply warping and clip
 
-        # Interpolate using cubic splines for smooth warping
+        # Interpolate using cubic splines while ensuring same number of steps
         warped_tensor = []
         for i in range(tensor.shape[1]):  # Iterate over channels
             cs = CubicSpline(orig_time, tensor[:, i].numpy())  # Create cubic spline
-            warped_tensor.append(cs(warped_time))  # Apply warping
+            interpolated_values = cs(orig_time)  # Ensure same time steps
+            warped_tensor.append(interpolated_values)
 
         return torch.tensor(np.stack(warped_tensor, axis=1), dtype=tensor.dtype)
-
