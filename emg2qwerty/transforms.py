@@ -296,3 +296,24 @@ class TimeWarping:
             warped_tensor.append(interpolated_values)
 
         return torch.tensor(np.stack(warped_tensor, axis=1), dtype=tensor.dtype)
+
+def stretch(self, data, rate=1):
+        '''
+        Time stretch an audio series for a fixed rate using Librosa.
+        Args:
+            data: clean audio data.
+            rate: time stretch rate.
+
+        Returns:
+            augmented_data: audio data time-stretched.
+        '''
+        input_length = len(data)
+        # Speed of speech
+        augmented_data = librosa.effects.time_stretch(y = data, rate = rate)
+        if len(augmented_data) > input_length:
+            # Cut the length of the augmented audio to be equal to the original.
+            augmented_data = augmented_data[:input_length]
+        else:
+            # Pad with silence.
+            augmented_data = np.pad(augmented_data, (0, max(0, input_length - len(augmented_data))), "constant")
+        return augmented_data
