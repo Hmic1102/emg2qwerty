@@ -37,7 +37,7 @@ dataset:
 
 hydra:
   run:
-    dir: logs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: /content/drive/MyDrive/89335547
   sweep:
     dir: ${hydra.run.dir}
     subdir: job${hydra.job.num}_${hydra.job.override_dirname}
