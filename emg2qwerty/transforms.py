@@ -317,3 +317,44 @@ def stretch(self, data, rate=1):
             # Pad with silence.
             augmented_data = np.pad(augmented_data, (0, max(0, input_length - len(augmented_data))), "constant")
         return augmented_data
+
+
+def phase_randomization(logspec: torch.Tensor) -> torch.Tensor:
+    """
+    Applies phase randomization to a log spectrogram.
+
+    Args:
+        logspec (torch.Tensor): Log spectrogram of shape (T, ..., C, freq).
+
+    Returns:
+        torch.Tensor: Phase-randomized log spectrogram, same shape.
+    """
+    # Convert log spectrogram back to linear scale
+    linear_spec = torch.pow(10, logspec)  # Undo log10 transformation
+
+    # Move (T, ..., C, freq) -> (..., C, freq, T) to match Fourier transform expectations
+    linear_spec = linear_spec.movedim(0, -1)
+
+    # Compute Fourier Transform to extract phase and magnitude
+    stft = torch.fft.fft(linear_spec, dim=-1)  # Get complex spectrogram
+
+    # Extract magnitude and phase
+    magnitude = torch.abs(stft)  # Keep magnitude
+    phase = torch.angle(stft)  # Extract phase
+
+    # Generate a random phase shift in the range [-π, π]
+    random_phase = (torch.rand_like(phase) * 2 * np.pi) - np.pi
+
+    # Apply the new random phase
+    randomized_stft = magnitude * torch.exp(1j * random_phase)
+
+    # Convert back to time domain using Inverse FFT
+    randomized_spec = torch.fft.ifft(randomized_stft, dim=-1).real
+
+    # Move back to (T, ..., C, freq)
+    randomized_spec = randomized_spec.movedim(-1, 0)
+
+    # Convert back to log scale for SpecAugment
+    log_randomized_spec = torch.log10(randomized_spec + 1e-6)
+
+    return log_randomized_spec  # Shape is (T, ..., C, freq)
