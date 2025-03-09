@@ -319,42 +319,60 @@ def stretch(self, data, rate=1):
         return augmented_data
 
 
-def phase_randomization(logspec: torch.Tensor) -> torch.Tensor:
+import torch
+import torchaudio
+import numpy as np
+from dataclasses import dataclass
+
+@dataclass
+class LogSpectrogramWithPhaseRandomization:
     """
-    Applies phase randomization to a log spectrogram.
+    Creates a log10-scaled spectrogram from an EMG signal and applies phase randomization.
 
     Args:
-        logspec (torch.Tensor): Log spectrogram of shape (T, ..., C, freq).
-
-    Returns:
-        torch.Tensor: Phase-randomized log spectrogram, same shape.
+        n_fft (int): Size of FFT, creates n_fft // 2 + 1 frequency bins. (default: 64)
+        hop_length (int): Number of samples to stride between consecutive STFT windows. (default: 16)
     """
-    # Convert log spectrogram back to linear scale
-    linear_spec = torch.pow(10, logspec)  # Undo log10 transformation
 
-    # Move (T, ..., C, freq) -> (..., C, freq, T) to match Fourier transform expectations
-    linear_spec = linear_spec.movedim(0, -1)
+    n_fft: int = 64
+    hop_length: int = 16
 
-    # Compute Fourier Transform to extract phase and magnitude
-    stft = torch.fft.fft(linear_spec, dim=-1)  # Get complex spectrogram
+    def __post_init__(self) -> None:
+        self.spectrogram_transform = torchaudio.transforms.Spectrogram(
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            normalized=True,
+            center=False,
+            power=None  # Important: Keeps complex values instead of power spectrogram
+        )
 
-    # Extract magnitude and phase
-    magnitude = torch.abs(stft)  # Keep magnitude
-    phase = torch.angle(stft)  # Extract phase
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        """
+        Computes log spectrogram with phase randomization.
 
-    # Generate a random phase shift in the range [-π, π]
-    random_phase = (torch.rand_like(phase) * 2 * np.pi) - np.pi
+        Args:
+            tensor (torch.Tensor): Raw waveform of shape (T, ...).
 
-    # Apply the new random phase
-    randomized_stft = magnitude * torch.exp(1j * random_phase)
+        Returns:
+            torch.Tensor: Log spectrogram with randomized phase, shape (T, ..., C, freq).
+        """
+        # Compute complex spectrogram (STFT)
+        complex_spec = self.spectrogram_transform(tensor)  # Shape: (..., freq, time)
 
-    # Convert back to time domain using Inverse FFT
-    randomized_spec = torch.fft.ifft(randomized_stft, dim=-1).real
+        # Extract magnitude and phase
+        magnitude = torch.abs(complex_spec)  # Keep magnitude
+        phase = torch.angle(complex_spec)  # Extract phase
 
-    # Move back to (T, ..., C, freq)
-    randomized_spec = randomized_spec.movedim(-1, 0)
+        # Generate random phase in range [-π, π]
+        random_phase = (torch.rand_like(phase) * 2 * np.pi) - np.pi
 
-    # Convert back to log scale for SpecAugment
-    log_randomized_spec = torch.log10(randomized_spec + 1e-6)
+        # Apply phase randomization
+        randomized_complex_spec = magnitude * torch.exp(1j * random_phase)
 
-    return log_randomized_spec  # Shape is (T, ..., C, freq)
+        # Convert back to time domain using Inverse STFT
+        randomized_spec = torch.fft.ifft(randomized_complex_spec, dim=-1).real
+
+        # Convert back to log scale (for SpecAugment compatibility)
+        log_randomized_spec = torch.log10(randomized_spec + 1e-6)
+
+        return log_randomized_spec  # Shape: (T, ..., C, freq)
