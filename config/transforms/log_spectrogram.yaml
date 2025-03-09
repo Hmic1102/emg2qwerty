@@ -40,12 +40,11 @@ phase_random:
 transforms:
   train:
     - ${to_tensor}
-    - ${temporal_jitter}    # Introduce misalignment first
-    - ${amplitude_scaling}  # Apply amplitude variation
-    - ${time_warping}       # Time warping before frequency transform
-    - ${band_rotation}      # Rotate channels after warping
-    - ${logspec}            # Convert to log spectrogram
-    - ${specaug}            # Apply frequency/time masking
+    - ${band_rotation}
+    - ${temporal_jitter}
+    - ${logspec}
+    - ${phase_random}
+    - ${specaug}      
 
   val:
     - ${to_tensor}
