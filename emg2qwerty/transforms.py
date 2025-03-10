@@ -319,4 +319,49 @@ def stretch(self, data, rate=1):
         return augmented_data
 
 
+from dataclasses import dataclass
+import torch
+import torchaudio
+import math
+
+@dataclass
+class LogSpectrogramWithPhaseRandomization:
+    """
+    Creates a log10-scaled spectrogram from an EMG signal. In the case of
+    a multi-channeled signal, the channels are treated independently.
+    The input must be of shape (T, ...) and the returned spectrogram
+    is of shape (T, ..., freq).
+
+    Args:
+        n_fft (int): Size of FFT, creates n_fft // 2 + 1 frequency bins.
+            (default: 64)
+        hop_length (int): Number of samples to stride between consecutive
+            STFT windows. (default: 16)
+    """
+    n_fft: int = 64
+    hop_length: int = 16
+
+    def __post_init__(self) -> None:
+        # Set power=None to obtain the complex spectrogram for phase manipulation.
+        self.spectrogram = torchaudio.transforms.Spectrogram(
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            normalized=True,
+            center=False,
+            power=None  # Return complex-valued output.
+        )
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        # Rearrange dimensions: (T, ..., C) -> (..., C, T)
+        x = tensor.movedim(0, -1)
+        # Compute complex spectrogram: shape (..., C, freq, T)
+        spec = self.spectrogram(x)
+        # Generate random phase uniformly distributed in [0, 2*pi) for each element.
+        random_phase = torch.rand_like(spec.real) * 2 * math.pi
+        # Replace the phase: combine the original magnitude with the random phase.
+        spec_randomized = torch.abs(spec) * torch.exp(1j * random_phase)
+        # Compute the log-scaled magnitude.
+        logspec = torch.log10(torch.abs(spec_randomized) + 1e-6)
+        # Rearrange dimensions back: (..., C, freq, T) -> (T, ..., C, freq)
+        return logspec.movedim(-1, 0)
 
