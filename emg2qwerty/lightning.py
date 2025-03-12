@@ -174,6 +174,11 @@ class TDSConvCTCModule(pl.LightningModule):
                 block_channels=block_channels,
                 kernel_width=kernel_width,
             ),
+            TDSLSTMEncoder(
+                num_features=num_features,
+                lstm_hidden_size=128,
+                num_lstm_layers=4
+            ),
             # (T, N, num_classes)
             nn.Linear(num_features, charset().num_classes),
             nn.LogSoftmax(dim=-1),
