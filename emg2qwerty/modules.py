@@ -280,7 +280,7 @@ class TDSConvEncoder(nn.Module):
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
 
 class TDSLSTMEncoder(nn.Module):
-    def __init__(self, num_features: int, lstm_hidden_size: int = 128, num_lstm_layers: int = 4):
+    def __init__(self, num_features: int, lstm_hidden_size: int = 128, num_lstm_layers: int = 4)-> None:
         super().__init__()
 
         # Define LSTM layers
