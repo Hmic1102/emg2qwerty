@@ -371,3 +371,30 @@ class LogSpectrogramWithPhaseRandomization:
         # Rearrange dimensions back: (..., C, freq, T) -> (T, ..., C, freq)
         return logspec.movedim(-1, 0)
 
+from dataclasses import dataclass
+import torch
+
+@dataclass
+class SpectrogramAugment:
+    """Adds frequency-level noise to a log-scaled spectrogram.
+    
+    This transform takes as input a log-scaled spectrogram (e.g. output from LogSpectrogram)
+    with shape (T, ..., C, freq) and adds additive Gaussian noise to each frequency bin.
+    The noise is generated with zero mean and a standard deviation specified by `noise_std`
+    and is constant across time and channel dimensions.
+    
+    Args:
+        noise_std (float): Standard deviation of the Gaussian noise to add.
+            (default: 0.1)
+    added right before SpecAugment
+    """
+    noise_std: float = 0.1
+
+    def __call__(self, spec: torch.Tensor) -> torch.Tensor:
+        # spec is expected to be of shape (T, ..., C, freq)
+        # Create noise with shape (1, 1, ..., 1, freq) so that it is applied 
+        # independently to each frequency bin and broadcasted across other dims.
+        noise_shape = [1] * (spec.dim() - 1) + [spec.shape[-1]]
+        noise = torch.randn(noise_shape, device=spec.device, dtype=spec.dtype) * self.noise_std
+        spec_aug = spec + noise
+        return spec_aug
