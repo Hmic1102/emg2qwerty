@@ -249,13 +249,15 @@ class SpecAugment:
 class AmplitudeScaling:
     """Randomly scales the amplitude of the sEMG signals to simulate
     different muscle contraction strengths.
-
+    
     Helps the model become robust to variations in typing pressure and
     muscle activation levels.
 
     Args:
         min_scale (float): Minimum scaling factor (default: 0.8).
         max_scale (float): Maximum scaling factor (default: 1.2).
+
+    placed right after to_tensor
     """
 
     min_scale: float = 0.8
@@ -276,6 +278,8 @@ class TimeWarping:
     """Applies time warping without changing the shape of the input.
     
     Ensures that the number of time steps remains unchanged after transformation.
+
+    place right after to_tensor
     """
     warp_strength: float = 0.2
 
@@ -337,6 +341,8 @@ class LogSpectrogramWithPhaseRandomization:
             (default: 64)
         hop_length (int): Number of samples to stride between consecutive
             STFT windows. (default: 16)
+
+    replace logspec
     """
     n_fft: int = 64
     hop_length: int = 16
