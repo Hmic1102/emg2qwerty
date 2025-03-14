@@ -47,7 +47,6 @@ transforms:
     - ${band_rotation}
     - ${temporal_jitter}
     - ${logspec}
-    - ${phase_random}
     - ${specaug}      
 
   val:
