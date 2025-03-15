@@ -1,7 +1,16 @@
 # @package _global_
+downsample: # for Question 5
+  _target_: emg2qwerty.transforms.Downsample
+  stride: 1 # 4 is quarter, 2 means half of sampling rate
+  time_dim: 0
+
 to_tensor:
   _target_: emg2qwerty.transforms.ToTensor
   fields: [emg_left, emg_right]
+
+RandomChannelDropoutN: # for masking channels
+  _target: emg2qwerty.transforms.RandomChannelDropoutN
+  n: 4
 
 temporal_jitter:
   _target_: emg2qwerty.transforms.TemporalAlignmentJitter
@@ -22,35 +31,46 @@ band_rotation:
     _target_: emg2qwerty.transforms.RandomBandRotation
     offsets: [-1, 0, 1]
 
+
+# vae_transform:
+#   _target_: emg2qwerty.transforms.PretrainedVAETransform
+#   checkpoint_path: "vae.ckpt"
+#   input_dim: 16 # Adjust this based on your data shape
+#   latent_dim: 16 # Keep consistent with the model definition
+
 logspec:
   _target_: emg2qwerty.transforms.LogSpectrogram
   n_fft: 64
-  hop_length: 16  # Downsamples from 2kHz to 125Hz
+  hop_length: 8  # Downsamples from 2kHz to 125Hz - used to be 16, when declaring it 8 we upsample it twice
 
 logspec_with_phase_random:
   _target_: emg2qwerty.transforms.LogSpectrogramWithPhaseRandomization
   n_fft: 64
-  hop_length: 16  # Downsamples from 2kHz to 125Hz
-
+  hop_length: 16  # Downsamples from 2kHz to 125Hz - used to be 16, when declaring it 8 we upsample it twice
 
 specaug:
   _target_: emg2qwerty.transforms.SpecAugment
-  n_time_masks: 3
-  time_mask_param: 25  # Max 200ms per time mask for 125Hz spectrogram
-  n_freq_masks: 2
-  freq_mask_param: 4
+  n_time_masks: 1
+  time_mask_param: 6  # Max 200ms per time mask for 125Hz spectrogram
+  n_freq_masks: 1
+  freq_mask_param: 2
 
 
 transforms:
   train:
     - ${to_tensor}
+#    - ${downsample} # to answer Question 5
     - ${band_rotation}
     - ${temporal_jitter}
+    - ${amplitude_scaling}
+#    - ${vae_transform} # tried using pretrained VAE to enhance our data
     - ${logspec}
-    - ${specaug}      
+    - ${specaug}
 
   val:
     - ${to_tensor}
+#    - ${downsample} # to answer Question 5 on validation
+#    - ${vae} # tried VAE on validation
     - ${logspec}
 
   test: ${transforms.val}
