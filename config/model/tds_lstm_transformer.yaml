@@ -1,0 +1,23 @@
+# config/model/tds_lstm_transformer.yaml
+# @package _global_
+
+
+module:
+  _target_: emg2qwerty.lightning.TDSLSTMTransformerModule
+  in_features: 528
+  mlp_features: [384]
+  block_channels: [24, 24, 24, 24, 32]
+  kernel_width: 32
+  lstm_hidden_size: 192
+  lstm_layers: 2
+  transformer_d_model: 192
+  transformer_nhead: 4
+  transformer_ff: 768
+  transformer_layers: 2
+  
+  # Reference the top-level config
+  optimizer: ${optimizer}
+  lr_scheduler: ${lr_scheduler}
+  decoder: ${decoder}
+
+
