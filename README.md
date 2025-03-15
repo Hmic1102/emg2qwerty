@@ -9,3 +9,8 @@ Team Members:
 [Metin Alp Dogan, UID 106530173](https://github.com/metinalpdogan)
 
 [Kaan Buyukkalayci, UID 506301457](https://github.com/kaanbkalayci)
+
+
+
+
+[Checkpoints / Logs](https://drive.google.com/drive/folders/1ybDMsH7kD0t84HIOql2cJkK0RD2IWaFy?usp=share_link)
