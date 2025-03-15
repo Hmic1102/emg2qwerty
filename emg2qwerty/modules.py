@@ -9,6 +9,8 @@ from collections.abc import Sequence
 import torch
 from torch import nn
 
+from torch.nn import functional as F
+
 
 class SpectrogramNorm(nn.Module):
     """A `torch.nn.Module` that applies 2D batch normalization over spectrogram
@@ -277,31 +279,144 @@ class TDSConvEncoder(nn.Module):
         self.tds_conv_blocks = nn.Sequential(*tds_conv_blocks)
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+        out = self.tds_conv_blocks(inputs)
+        return out  # (T, N, num_features)
+    
+class TDSLSTMEncoder(nn.Module): # added the lstm encoder
 
-class TDSLSTMEncoder(nn.Module):
-    def __init__(self, num_features: int, lstm_hidden_size: int = 128, num_lstm_layers: int = 4)-> None:
+    def __init__(
+            self,
+            num_features: int,
+            lstm_hidden_size: int = 128,
+            num_lstm_layers: int = 2,
+    ) -> None:
         super().__init__()
 
-        # Define LSTM layers
         self.lstm_layers = nn.LSTM(
-            input_size=num_features, 
-            hidden_size=lstm_hidden_size, 
-            num_layers=num_lstm_layers, 
-            batch_first=False,  # (T, N, num_features) input shape
+            input_size=num_features,
+            hidden_size=lstm_hidden_size,
+            num_layers=num_lstm_layers,
+            batch_first=False,
             bidirectional=True
         )
 
-        # Fully connected block
-        self.fc_block = nn.TDSFullyConnectedBlock(lstm_hidden_size * 2)
-        self.out_layer = nn.Linear(lstm_hidden_size * 2, num_features)
+        self.fc_block = TDSFullyConnectedBlock(lstm_hidden_size*2)
+        self.out_layer = nn.Linear(lstm_hidden_size*2, num_features)
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         x, _ = self.lstm_layers(inputs)
-
-        # Apply fully connected transformations
         x = self.fc_block(x)
         x = self.out_layer(x)
-
         return x
+    
+class TDSRNNEncoder(nn.Module): # added the rnn encoder
+
+    def __init__(
+            self,
+            num_features: int,
+            rnn_hidden_size: int = 128,
+            num_rnn_layers: int = 4,
+    ) -> None:
+        super().__init__()
+
+        self.rnn_layers = nn.RNN(
+            input_size=num_features,
+            hidden_size=rnn_hidden_size,
+            num_layers=num_rnn_layers,
+            batch_first=False,
+            bidirectional=True
+        )
+
+        self.fc_block = TDSFullyConnectedBlock(rnn_hidden_size*2)
+        self.out_layer = nn.Linear(rnn_hidden_size*2, num_features)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        x, _ = self.rnn_layers(inputs)
+        x = self.fc_block(x)
+        x = self.out_layer(x)
+        return x
+
+class TDSGRUEncoder(nn.Module): # added the gru encoder
+    def __init__(
+        self,
+        num_features: int,
+        gru_hidden_size: int = 128,
+        num_gru_layers: int = 2,
+        bidirectional: bool = False,
+    ) -> None:
+        super().__init__()
+
+        self.gru = nn.GRU( # processesing the TDS-encoded features (
+            input_size=num_features,
+            hidden_size=gru_hidden_size,
+            num_layers=num_gru_layers,
+            batch_first=False,    # shape is (T, N, Feat)
+            bidirectional=bidirectional
+        )
+
+        self.fc_block = TDSFullyConnectedBlock( # with the residual layer
+            num_features=gru_hidden_size * (2 if bidirectional else 1)
+        )
+        self.out_layer = nn.Linear(
+            gru_hidden_size * (2 if bidirectional else 1),
+            num_features
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor: # x is shape (T, N, num_features)
+        x, _ = self.gru(x)  
+
+        x = self.fc_block(x) # same layers as before
+        x = self.out_layer(x)
+
+        return x  # shape is (T, N, hidden_size)
+
+
+class TDSRNNCTCModel(nn.Module): # added another module
+    """
+    A model that:
+     1) Applies a TDSConvEncoder (time-depth separable conv)
+     2) Then a single RNN (e.g., GRU)
+     3) Then a final FC layer for classification (CTC-friendly).
+    """
+
+    def __init__(
+        self,
+        in_features=528,
+        block_channels=(24, 24, 24, 24),
+        kernel_width=32,
+        rnn_hidden_size=128,
+        num_classes=30,
+    ):
+        super().__init__()
+
+        self.tds = TDSConvEncoder( # TDS 
+            num_features=in_features,
+            block_channels=block_channels,
+            kernel_width=kernel_width,
+        )
+
+        self.rnn = nn.GRU( # GRU
+            input_size=in_features,  # shape is (T, N, in_features)
+            hidden_size=rnn_hidden_size,
+            num_layers=1,
+            batch_first=False,  # shape is (T, B, F)
+        )
+
+        self.fc = nn.Linear(rnn_hidden_size, num_classes) # 3) fc layer to number of characters
+
+    def forward(self, x):
+        """
+        x shape: (T, N, in_features) 
+         - T: time dimension
+         - N: batch size
+         - in_features: e.g. 528
+        Returns:
+         - logits: (T, N, num_classes)
+        """
+
+        x = self.tds(x)  # TDS conv stack with it's shape being (T, N, in_features)
+        rnn_out, _ = self.rnn(x)  # output's shape (T, N, rnn_hidden_size)
+        logits = self.fc(rnn_out) # outputs classificiation logits with the num_classes
+
+        return logits
 
