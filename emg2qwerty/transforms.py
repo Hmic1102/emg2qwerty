@@ -11,12 +11,14 @@ from typing import Any, TypeVar
 import numpy as np
 import torch
 import torchaudio
+import torch.nn as nn
+import torch.optim as optim
+# from .train_vae import VAEModel
 
 
 TTransformIn = TypeVar("TTransformIn")
 TTransformOut = TypeVar("TTransformOut")
 Transform = Callable[[TTransformIn], TTransformOut]
-
 
 @dataclass
 class ToTensor:
@@ -41,6 +43,60 @@ class ToTensor:
             [torch.as_tensor(data[f]) for f in self.fields], dim=self.stack_dim
         )
 
+@dataclass
+class RandomChannelDropoutN:
+    """Randomly drops exactly `n` channels in the EMG data.
+
+    NOTE: If the input is 3D with batch dim (TNC), then this transform
+    applies the same dropout mask across all items in the batch. To apply 
+    different dropout masks per batch item, use the ``ForEach`` wrapper.
+
+    Args:
+        n (int): The number of channels to drop.
+        fill_value (float): Value to fill the dropped channels with (default: 0.0).
+        channel_dim (int): The electrode channel dimension. (default: -1)
+    """
+
+    n: int
+    fill_value: float = 0.0
+    channel_dim: int = -1
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        num_channels = tensor.shape[self.channel_dim]
+        assert self.n <= num_channels, f"n ({self.n}) must be <= number of channels ({num_channels})"
+
+        # Randomly select `n` unique channels to drop
+        drop_indices = np.random.choice(num_channels, self.n, replace=False)
+
+        # Create a mask initialized to 1 (keep all channels)
+        mask = torch.ones(num_channels, device=tensor.device)
+
+        # Set selected channels to 0 (drop)
+        mask[drop_indices] = 0  
+
+        # Reshape mask to match tensor dimensions
+        mask_shape = [1 if i != self.channel_dim else num_channels for i in range(tensor.ndim)]
+        mask = mask.view(mask_shape)
+
+        # Apply mask (set dropped channels to fill_value)
+        return tensor * mask + self.fill_value * (1 - mask)
+
+@dataclass
+class Downsample:
+    """
+    A transform that downsamples the time dimension by a given factor (stride).
+    E.g., stride=2 => keep every other sample => effectively halves the sampling rate.
+    """
+    stride: int = 2  # e.g. stride=2 => half the sampling rate
+    time_dim: int = 0
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        # shape e.g. (T, N, 2, 16, freq)
+        # We want to keep every 'stride' sample along the time_dim
+        return tensor.index_select(
+            self.time_dim,
+            torch.arange(0, tensor.shape[self.time_dim], self.stride, device=tensor.device)
+        )
 
 @dataclass
 class Lambda:
@@ -153,6 +209,38 @@ class TemporalAlignmentJitter:
 
         return torch.stack([left, right], dim=self.stack_dim)
 
+# @dataclass
+# class PretrainedVAETransform: # ADDED VAE 
+#     """
+#     Applies a pretrained VAE to the input tensor.
+#     Expects the last dimension = input_dim (e.g. 16).
+#     """
+
+#     checkpoint_path: str
+#     input_dim: int = 16
+#     latent_dim: int = 16
+
+#     def __post_init__(self): # load the same architecture used in train_vae.py
+#         self.model = VAEModel(input_dim=self.input_dim, latent_dim=self.latent_dim)
+        
+#         ckpt = torch.load(self.checkpoint_path, map_location='cpu') # load checkpoint
+        
+#         if "state_dict" in ckpt:
+#             self.model.load_state_dict(ckpt["state_dict"], strict=False)
+#         else:
+#             self.model.load_state_dict(ckpt, strict=False)
+
+#         self.model.eval()
+#         for p in self.model.parameters():
+#             p.requires_grad = False
+
+#     def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+#         with torch.no_grad():
+#             original_shape = tensor.shape # flatten the shape like needed
+#             x = tensor.view(-1, self.input_dim) # make last dim = initial dim
+#             decoded, _, _ = self.model(x)
+#             decoded = decoded.view(*original_shape)
+#         return decoded
 
 @dataclass
 class LogSpectrogram:
@@ -244,7 +332,6 @@ class SpecAugment:
         # (..., C, freq, T) -> (T, ..., C, freq)
         return x.movedim(-1, 0)
 
-
 @dataclass
 class AmplitudeScaling:
     """Randomly scales the amplitude of the sEMG signals to simulate
@@ -266,7 +353,6 @@ class AmplitudeScaling:
     def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
         scale = torch.FloatTensor(1).uniform_(self.min_scale, self.max_scale)
         return tensor * scale
-
 
 from scipy.interpolate import CubicSpline
 import numpy as np
@@ -300,33 +386,33 @@ class TimeWarping:
             warped_tensor.append(interpolated_values)
 
         return torch.tensor(np.stack(warped_tensor, axis=1), dtype=tensor.dtype)
-
+    
 def stretch(self, data, rate=1):
-        '''
-        Time stretch an audio series for a fixed rate using Librosa.
-        Args:
-            data: clean audio data.
-            rate: time stretch rate.
+    '''
+    Time stretch an audio series for a fixed rate using Librosa.
+    Args:
+        data: clean audio data.
+        rate: time stretch rate.
 
-        Returns:
-            augmented_data: audio data time-stretched.
-        '''
-        input_length = len(data)
-        # Speed of speech
-        augmented_data = librosa.effects.time_stretch(y = data, rate = rate)
-        if len(augmented_data) > input_length:
-            # Cut the length of the augmented audio to be equal to the original.
-            augmented_data = augmented_data[:input_length]
-        else:
-            # Pad with silence.
-            augmented_data = np.pad(augmented_data, (0, max(0, input_length - len(augmented_data))), "constant")
-        return augmented_data
-
-
+    Returns:
+        augmented_data: audio data time-stretched.
+    '''
+    input_length = len(data)
+    # Speed of speech
+    augmented_data = librosa.effects.time_stretch(y = data, rate = rate)
+    if len(augmented_data) > input_length:
+        # Cut the length of the augmented audio to be equal to the original.
+        augmented_data = augmented_data[:input_length]
+    else:
+        # Pad with silence.
+        augmented_data = np.pad(augmented_data, (0, max(0, input_length - len(augmented_data))), "constant")
+    return augmented_data
+    
 from dataclasses import dataclass
 import torch
 import torchaudio
 import math
+
 
 @dataclass
 class LogSpectrogramWithPhaseRandomization:
@@ -348,13 +434,13 @@ class LogSpectrogramWithPhaseRandomization:
     hop_length: int = 16
 
     def __post_init__(self) -> None:
-        # Set power=None to obtain the complex spectrogram for phase manipulation.
+        # Set power=None to obtain the complex spectrogram for phase manipulation
         self.spectrogram = torchaudio.transforms.Spectrogram(
             n_fft=self.n_fft,
             hop_length=self.hop_length,
             normalized=True,
             center=False,
-            power=None  # Return complex-valued output.
+            power=None  # Return complex-valued output
         )
 
     def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
@@ -370,7 +456,7 @@ class LogSpectrogramWithPhaseRandomization:
         logspec = torch.log10(torch.abs(spec_randomized) + 1e-6)
         # Rearrange dimensions back: (..., C, freq, T) -> (T, ..., C, freq)
         return logspec.movedim(-1, 0)
-
+    
 from dataclasses import dataclass
 import torch
 
